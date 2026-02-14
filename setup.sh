@@ -1,4 +1,4 @@
-#!bin/bash
+#!/bin/bash
 
 # Run this on kali linux to install all dependencies
 
@@ -6,7 +6,7 @@ if [[ $EUID -ne 0 ]]; then
     echo "Run it as root"
     read -p "Continue anyway? (y/n) "
     echo
-    if [[ ! $REPLY +~ ^[Yy]$ ]]; then
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 	exit 1
     fi
 fi
