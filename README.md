@@ -1,4 +1,4 @@
-# OSCP Automated Enumeration Tool
+# Offensive Security Enumeration Help
 
 A comprehensive automated enumeration script designed for OSCP exam efficiency. This tool automates the tedious enumeration process, allowing you to focus on exploitation.
 
@@ -48,10 +48,10 @@ sudo gunzip /usr/share/wordlists/dirb/* 2>/dev/null
 
 ```bash
 # Download the script
-chmod +x oscp_auto_enum.py
+chmod +x offsec_enum.py
 
 # Make it executable
-sudo ln -s $(pwd)/oscp_auto_enum.py /usr/local/bin/oscp-enum
+sudo ln -s $(pwd)/offsec_enum.py /usr/local/bin/offsec-enum
 ```
 
 ## Usage
@@ -60,29 +60,29 @@ sudo ln -s $(pwd)/oscp_auto_enum.py /usr/local/bin/oscp-enum
 
 ```bash
 # Simple enumeration
-sudo python3 oscp_auto_enum.py 10.10.10.10
+sudo python3 offsec_enum.py 10.10.10.10
 
 # With custom output directory
-sudo python3 oscp_auto_enum.py 10.10.10.10 -o /root/oscp/target1
+sudo python3 offsec_enum.py 10.10.10.10 -o /root/offsec/target1
 ```
 
 ### Advanced Options
 
 ```bash
 # Quick mode (top 10000 ports only)
-sudo python3 oscp_auto_enum.py 10.10.10.10 -q
+sudo python3 offsec_enum.py 10.10.10.10 -q
 
 # Specific ports
-sudo python3 oscp_auto_enum.py 10.10.10.10 -p 80,443,8080
+sudo python3 offsec_enum.py 10.10.10.10 -p 80,443,8080
 
 # Port range
-sudo python3 oscp_auto_enum.py 10.10.10.10 -p 1-1000
+sudo python3 offsec_enum.py 10.10.10.10 -p 1-1000
 ```
 
 ### Full Command Reference
 
 ```
-usage: oscp_auto_enum.py [-h] [-o OUTPUT] [-p PORTS] [-q] target
+usage: offsec_enum.py [-h] [-o OUTPUT] [-p PORTS] [-q] target
 
 Arguments:
   target                Target IP address or hostname
@@ -132,9 +132,9 @@ enum_results_<target>_<timestamp>/
 
 1. **Start enumeration immediately** on all targets:
    ```bash
-   sudo python3 oscp_auto_enum.py 192.168.x.10 -o target1 &
-   sudo python3 oscp_auto_enum.py 192.168.x.11 -o target2 &
-   sudo python3 oscp_auto_enum.py 192.168.x.12 -o target3 &
+   sudo python3 offsec_enum.py 192.168.x.10 -o target1 &
+   sudo python3 offsec_enum.py 192.168.x.11 -o target2 &
+   sudo python3 offsec_enum.py 192.168.x.12 -o target3 &
    ```
 
 2. **Review results** as they complete
@@ -185,7 +185,7 @@ self.run_command(command, timeout=600)  # 10 minutes
 
 Some scans require root:
 ```bash
-sudo python3 oscp_auto_enum.py <target>
+sudo python3 offsec_enum.py <target>
 ```
 
 ### Missing Tools
@@ -199,8 +199,8 @@ sudo apt install -y <tool-name>
 
 Use quick mode or specify ports:
 ```bash
-sudo python3 oscp_auto_enum.py 10.10.10.10 -q
-sudo python3 oscp_auto_enum.py 10.10.10.10 -p 1-1000
+sudo python3 offsec_enum.py 10.10.10.10 -q
+sudo python3 offsec_enum.py 10.10.10.10 -p 1-1000
 ```
 
 ## Exam-Specific Notes
