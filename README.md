@@ -72,7 +72,7 @@ sudo apt install -y wordlists seclists
 ## Installation
 
 ```bash
-git clone <repo-url> && cd offsec-enum-ng
+git clone https://github.com/mtholmquist/offsec-enum-ng && cd offsec-enum-ng
 sudo ./setup.sh
 ```
 
@@ -85,7 +85,7 @@ sudo ./setup.sh
 sudo python3 offsec-enum-ng.py 10.10.10.10
 
 # Custom output directory
-sudo python3 offsec-enum-ng.py 10.10.10.10 -o /root/offsec/target1
+sudo python3 offsec-enum-ng.py 10.10.10.10 -o ~/offsec/target1
 ```
 
 ### Common Patterns
