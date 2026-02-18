@@ -252,30 +252,69 @@ def parse_nikto_results(filepath):
     return findings
 
 
-def parse_enum4linux_results(filepath):
-    """Parse enum4linux output → dict with users, shares, os_info, password_policy."""
+def parse_enum4linux_ng_results(json_path, text_path=None):
+    """Parse enum4linux-ng output → dict with users, shares, os_info, password_policy.
+
+    Tries JSON output first (from ``-oJ``), falls back to text parsing.
+    """
     result = {'users': [], 'shares': [], 'os_info': '', 'password_policy': '',
               'null_session': False}
-    path = Path(filepath)
-    if not path.exists() or path.stat().st_size == 0:
-        return result
 
-    try:
-        content = path.read_text(errors='replace')
-        for line in content.split('\n'):
-            if 'user:' in line.lower() and '[' in line:
-                result['users'].append(line.strip())
-            if 'Disk' in line or 'IPC' in line or 'Print' in line:
-                if '\\\\' in line or '//' in line:
-                    result['shares'].append(line.strip())
-            if 'OS=' in line or 'os info' in line.lower():
-                result['os_info'] = line.strip()
-            if 'password' in line.lower() and 'policy' in line.lower():
-                result['password_policy'] = line.strip()
-            if 'null session' in line.lower() and 'success' in line.lower():
+    # --- Try JSON (preferred) ---
+    json_file = Path(json_path)
+    if json_file.exists() and json_file.stat().st_size > 0:
+        try:
+            data = json.loads(json_file.read_text(errors='replace'))
+
+            # Users
+            users_data = data.get('users', {})
+            for rid, info in users_data.items():
+                username = info.get('username', '')
+                if username:
+                    result['users'].append(f"user:[{username}] rid:[{rid}]")
+
+            # Shares
+            shares_data = data.get('shares', {})
+            for share_name, info in shares_data.items():
+                access = info.get('access', info.get('mapping', ''))
+                result['shares'].append(f"{share_name} ({access})")
+
+            # OS info
+            os_data = data.get('os_info', {})
+            if isinstance(os_data, dict):
+                os_str = os_data.get('os', '')
+                build = os_data.get('os_build', os_data.get('build', ''))
+                if os_str:
+                    result['os_info'] = f"{os_str} {build}".strip()
+
+            # Null session — enum4linux-ng sets this when anonymous access works
+            if users_data or shares_data:
                 result['null_session'] = True
-    except Exception:
-        pass
+
+            return result
+        except (json.JSONDecodeError, Exception):
+            pass  # fall through to text parsing
+
+    # --- Fallback: text output ---
+    txt_file = Path(text_path) if text_path else None
+    if txt_file and txt_file.exists() and txt_file.stat().st_size > 0:
+        try:
+            content = txt_file.read_text(errors='replace')
+            for line in content.split('\n'):
+                if 'user:' in line.lower() and '[' in line:
+                    result['users'].append(line.strip())
+                if 'Disk' in line or 'IPC' in line or 'Print' in line:
+                    if '\\\\' in line or '//' in line:
+                        result['shares'].append(line.strip())
+                if 'OS=' in line or 'os info' in line.lower():
+                    result['os_info'] = line.strip()
+                if 'password' in line.lower() and 'policy' in line.lower():
+                    result['password_policy'] = line.strip()
+                if 'null session' in line.lower() and 'success' in line.lower():
+                    result['null_session'] = True
+        except Exception:
+            pass
+
     return result
 
 
@@ -361,7 +400,7 @@ TIMEOUT_DEFAULTS = {
     'nikto':          600,
     'gobuster':      2400,
     'whatweb':        300,
-    'enum4linux':     600,
+    'enum4linux_ng':  600,
     'smbmap':         300,
     'smbclient':      300,
     'nmap_nse':       300,
@@ -375,6 +414,8 @@ TIMEOUT_DEFAULTS = {
     'showmount':      300,
     'smtp_user_enum': 600,
     'rdp':            300,
+    'winrm':          300,
+    'rpcclient':      300,
     'default':        600,
 }
 
@@ -984,12 +1025,17 @@ class EnumerationEngine:
 
         smb_dir = self._ensure_output_dir("smb")
 
-        enum4linux_output = smb_dir / "enum4linux.txt"
-        enum4linux_cmd = ["enum4linux", "-a", self.target]
-        result = self.run_command(enum4linux_cmd, output_file=enum4linux_output,
-                                  timeout=self._timeout('enum4linux'))
+        # enum4linux-ng: JSON output via -oJ, text captured via stdout
+        e4l_json_base = str(smb_dir / "enum4linux-ng")  # -oJ appends .json
+        e4l_txt = smb_dir / "enum4linux-ng.txt"
+        e4l_cmd = [
+            "enum4linux-ng", "-A", self.target,
+            "-oJ", e4l_json_base,
+        ]
+        result = self.run_command(e4l_cmd, output_file=e4l_txt,
+                                  timeout=self._timeout('enum4linux_ng'))
         if result.success:
-            self.logger.success("enum4linux complete (%.1fs)", result.duration)
+            self.logger.success("enum4linux-ng complete (%.1fs)", result.duration)
 
         smbmap_output = smb_dir / "smbmap.txt"
         smbmap_cmd = ["smbmap", "-H", self.target]
@@ -1284,6 +1330,66 @@ class EnumerationEngine:
         if result.success:
             self.logger.success("RDP enumeration complete (%.1fs)", result.duration)
 
+    def enumerate_winrm(self, port):
+        """Enumerate WinRM (Windows Remote Management) services."""
+        self.logger.info("Enumerating WinRM on port %d...", port)
+
+        winrm_dir = self._ensure_output_dir("winrm")
+
+        # NTLM info leak — extracts domain name, hostname, OS version
+        ntlm_output = winrm_dir / f"winrm_ntlm_{port}.txt"
+        ntlm_cmd = [
+            "nmap", "-p", str(port),
+            "--script=http-ntlm-info",
+            "--script-args=http-ntlm-info.root=/wsman",
+            self.target,
+        ]
+        result = self.run_command(ntlm_cmd, output_file=ntlm_output,
+                                  timeout=self._timeout('winrm'))
+        if result.success:
+            self.logger.success("WinRM NTLM info complete (%.1fs)", result.duration)
+
+        # Auth methods and headers
+        auth_output = winrm_dir / f"winrm_auth_{port}.txt"
+        auth_cmd = [
+            "nmap", "-p", str(port),
+            "--script=http-auth,http-headers",
+            self.target,
+        ]
+        result = self.run_command(auth_cmd, output_file=auth_output,
+                                  timeout=self._timeout('winrm'))
+        if result.success:
+            self.logger.success("WinRM auth/headers complete (%.1fs)", result.duration)
+
+    def enumerate_msrpc(self, port):
+        """Enumerate Windows RPC / rpcclient null session."""
+        self.logger.info("Enumerating Windows RPC on port %d...", port)
+
+        msrpc_dir = self._ensure_output_dir("msrpc")
+
+        # rpcclient null session — enumerate domain users, groups, domain info
+        rpcclient_output = msrpc_dir / "rpcclient_null.txt"
+        rpcclient_cmd = [
+            "rpcclient", "-U", "", "-N", self.target,
+            "-c", "enumdomusers;enumdomgroups;querydominfo;getdompwinfo;netshareenum",
+        ]
+        result = self.run_command(rpcclient_cmd, output_file=rpcclient_output,
+                                  timeout=self._timeout('rpcclient'))
+        if result.success:
+            self.logger.success("rpcclient null session complete (%.1fs)", result.duration)
+        elif 'NT_STATUS_ACCESS_DENIED' in result.stderr or 'NT_STATUS_ACCESS_DENIED' in result.stdout:
+            self.logger.info("rpcclient null session denied (expected on hardened hosts)")
+
+        # RPC endpoint enumeration via impacket if available
+        rpcdump_output = msrpc_dir / "rpcdump.txt"
+        rpcdump_cmd = [
+            "impacket-rpcdump", f"{self.target}",
+        ]
+        result = self.run_command(rpcdump_cmd, output_file=rpcdump_output,
+                                  timeout=self._timeout('rpcclient'))
+        if result.success:
+            self.logger.success("RPC endpoint dump complete (%.1fs)", result.duration)
+
     # ------------------------------------------------------------------
     # Service classification & dispatch
     # ------------------------------------------------------------------
@@ -1302,14 +1408,26 @@ class EnumerationEngine:
         'nfs':   [111, 2049],
         'smtp':  [25, 587],
         'rdp':   [3389],
+        'winrm': [5985, 5986],
+        'msrpc': [135],
     }
 
     def _classify_port(self, port, port_info):
         """Return a list of ``(enumerator_func, port)`` tasks for *port*."""
         tasks: List[Tuple[Callable, int]] = []
         service_lower = port_info.service.lower()
+        product_lower = port_info.product.lower()
 
-        if ('http' in service_lower
+        # Detect WinRM / HTTPAPI endpoints (not real web apps)
+        is_winrm = (
+            port in self.SERVICE_PORT_MAP['winrm']
+            or 'httpapi' in product_lower
+            or 'wsman' in service_lower
+        )
+
+        # HTTP: skip WinRM/HTTPAPI ports (nikto/gobuster are useless there)
+        if not is_winrm and (
+                'http' in service_lower
                 or port in self.SERVICE_PORT_MAP['http']
                 + self.SERVICE_PORT_MAP['https']):
             tasks.append((self.enumerate_http, port))
@@ -1359,12 +1477,19 @@ class EnumerationEngine:
                 or port in self.SERVICE_PORT_MAP['rdp']):
             tasks.append((self.enumerate_rdp, port))
 
+        if is_winrm:
+            tasks.append((self.enumerate_winrm, port))
+
+        if ('msrpc' in service_lower
+                or port in self.SERVICE_PORT_MAP['msrpc']):
+            tasks.append((self.enumerate_msrpc, port))
+
         return tasks
 
     # Host-level enumerators that scan the target, not a specific port.
     # Only dispatch once regardless of how many matching ports are open.
     _HOST_LEVEL_ENUMERATORS = frozenset({
-        'enumerate_smb', 'enumerate_snmp', 'enumerate_nfs',
+        'enumerate_smb', 'enumerate_snmp', 'enumerate_nfs', 'enumerate_msrpc',
     })
 
     def enumerate_services(self):
@@ -1469,15 +1594,16 @@ class EnumerationEngine:
                     next_step=f"smbclient //{self.target}/{share['name']} -N — enumerate contents",
                 ))
 
-        e4l_file = self.output_dir / "smb" / "enum4linux.txt"
-        e4l_data = parse_enum4linux_results(e4l_file)
+        e4l_json = self.output_dir / "smb" / "enum4linux-ng.json"
+        e4l_txt  = self.output_dir / "smb" / "enum4linux-ng.txt"
+        e4l_data = parse_enum4linux_ng_results(e4l_json, e4l_txt)
         if e4l_data['null_session']:
             findings.append(Finding(
                 severity='HIGH', category='null_session',
                 port=445, service='SMB',
                 description='SMB null session authentication succeeded.',
                 evidence='Null session established',
-                next_step=f'enum4linux -a {self.target} — extract users, groups, policies',
+                next_step=f'enum4linux-ng -A {self.target} — extract users, groups, policies',
             ))
         if e4l_data['users']:
             findings.append(Finding(
@@ -1499,6 +1625,44 @@ class EnumerationEngine:
                 evidence=snmp_data.get('system_info', 'Data retrieved via public community'),
                 next_step=f'snmpwalk -v2c -c public {self.target} — extract system info, processes, network',
             ))
+
+        # --- WinRM available ---
+        for port, pi in self.open_ports.items():
+            if port in self.SERVICE_PORT_MAP['winrm'] or 'httpapi' in pi.product.lower():
+                ntlm_file = self.output_dir / "winrm" / f"winrm_ntlm_{port}.txt"
+                evidence = 'WinRM service detected'
+                if ntlm_file.exists():
+                    try:
+                        content = ntlm_file.read_text(errors='replace')
+                        for line in content.split('\n'):
+                            if 'Target_Name' in line or 'DNS_Computer_Name' in line:
+                                evidence = line.strip()
+                                break
+                    except Exception:
+                        pass
+                findings.append(Finding(
+                    severity='INFO', category='winrm_available',
+                    port=port, service='WinRM',
+                    description=f'WinRM available on port {port} — shell access with valid credentials.',
+                    evidence=evidence,
+                    next_step=f'evil-winrm -i {self.target} -u USER -p PASS',
+                ))
+
+        # --- RPC null session ---
+        rpcclient_file = self.output_dir / "msrpc" / "rpcclient_null.txt"
+        if rpcclient_file.exists():
+            try:
+                content = rpcclient_file.read_text(errors='replace')
+                if 'user:' in content.lower() and 'rid:' in content.lower():
+                    findings.append(Finding(
+                        severity='HIGH', category='null_session',
+                        port=135, service='MSRPC',
+                        description='rpcclient null session succeeded — domain users enumerated.',
+                        evidence=content.strip()[:300],
+                        next_step=f'rpcclient -U "" -N {self.target} -c "enumdomusers"',
+                    ))
+            except Exception:
+                pass
 
         # --- MySQL empty password ---
         for port, pi in self.open_ports.items():
@@ -1639,7 +1803,11 @@ class EnumerationEngine:
                     f.write("\n")
 
             # --- Section 5: All Findings (Medium/Low/Info) ---
-            other_findings = [x for x in findings if x.severity not in ('CRITICAL', 'HIGH')]
+            # Exclude categories already shown in Web Discovery (Section 4)
+            web_categories = {'web_discovery', 'nikto_finding'}
+            other_findings = [x for x in findings
+                              if x.severity not in ('CRITICAL', 'HIGH')
+                              and x.category not in web_categories]
             if other_findings:
                 f.write("---\n\n## Other Findings\n\n")
                 for finding in other_findings:
