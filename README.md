@@ -36,7 +36,7 @@ Runs a full enumeration pipeline against a target: port discovery → service de
 ### Quick Setup
 
 ```bash
-git clone <repo-url> && cd offsec-enum-ng
+git clone https://github.com/mtholmquist/offsec-enum-ng && cd offsec-enum-ng
 chmod +x setup.sh
 sudo ./setup.sh
 ```
