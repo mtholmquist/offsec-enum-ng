@@ -31,11 +31,13 @@ Runs a full enumeration pipeline against a target: port discovery → service de
 - **JSON Export**: Machine-readable `REPORT.json` for custom tooling or dashboards
 - **Security Hardened**: No `shell=True`, input validation on targets and ports
 
-## Prerequisites
+## Installation
 
 ### Quick Setup
 
 ```bash
+git clone <repo-url> && cd offsec-enum-ng
+chmod +x setup.sh
 sudo ./setup.sh
 ```
 
@@ -75,13 +77,6 @@ sudo apt install -y smtp-user-enum
 
 # Wordlists
 sudo apt install -y wordlists seclists
-```
-
-## Installation
-
-```bash
-git clone <repo-url> && cd offsec-enum-ng
-sudo ./setup.sh
 ```
 
 ## Usage
